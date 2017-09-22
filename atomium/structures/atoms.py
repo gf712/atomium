@@ -1,8 +1,8 @@
-"""Contains the classes for atoms and their bonds."""
+"""This module contains the classes for atoms and their bonds."""
 
 import weakref
 from math import sqrt, acos, degrees
-from matrices.checks import is_numeric
+from points import Vector, is_numeric
 
 class Atom:
     """Represents an atom in three dimensional space. Every atom has an element
@@ -14,7 +14,7 @@ class Atom:
     :param number y: The atom's y coordinate.
     :param number z: The atom's z coordinate.
     :param int atom_id: A unique integer ID for the atom. This is supposed to\
-    be unique but enforcing this is a bit of a hassle so they don't need to be.
+    be unique.
     :param str name: The atom's name.
     :param number charge: The charge of the atom.
     :raises TypeError: if the element is not str.
@@ -22,9 +22,11 @@ class Atom:
     :raises TypeError: if the coordinates are not numeric.
     :raises TypeError: if the atom_id is not int.
     :raises TypeError: if the name is not str.
-    :raises TypeError: if the charge is not numeric."""
+    :raises TypeError: if the charge is not numeric.
+    :raises TypeError: if the bfactor is not numeric.
+    :raises ValueError: if the bfactor is negative."""
 
-    def __init__(self, element, x, y, z, atom_id=None, name=None, charge=0):
+    def __init__(self, element, x, y, z, atom_id=None, name=None, charge=0, bfactor=0):
         if not isinstance(element, str):
             raise TypeError("Element '{}' is not str".format(element))
         if not 0 < len(element) < 3:
@@ -41,6 +43,10 @@ class Atom:
             raise TypeError("name {} is not a string".format(name))
         if not is_numeric(charge):
             raise TypeError("charge '{}' is not numeric".format(charge))
+        if not is_numeric(bfactor):
+            raise TypeError("bfactor '{}' is not numeric".format(bfactor))
+        if bfactor < 0:
+            raise ValueError("bfactor {} is negative".format(bfactor))
         self._element = element
         self._x = x
         self._y = y
@@ -48,14 +54,16 @@ class Atom:
         self._id = atom_id
         self._name = name
         self._charge = charge
+        self._bfactor = bfactor
         self._bonds = set()
         self._residue, self._chain, self._molecule = None, None, None
         self._model = None
 
 
     def __repr__(self):
-        return "<{} Atom at ({}, {}, {})>".format(
-         self._element, self._x, self._y, self._z
+        return "<{} Atom {}{}at ({}, {}, {})>".format(
+         self._element, self._id if self._id else "", " " if self._id else "",
+         self._x, self._y, self._z
         )
 
 
@@ -127,19 +135,20 @@ class Atom:
             self._z = z
 
 
-    def atom_id(self, atom_id=None):
-        """Returns the atom's unique integer ID. If a value is given, the ID
-        will be updated.
+    def location(self):
+        """Returns the atom's Cartesian coordinates.
 
-        :param int atom_id: If given, the ID will be set to this.
-        :raises TypeError: if the ID given is not numeric."""
+        :rtype: ``tuple``"""
 
-        if atom_id is None:
-            return self._id
-        else:
-            if not isinstance(atom_id, int):
-                raise TypeError("Atom ID '{}' is not int".format(atom_id))
-            self._id = atom_id
+        return (self._x, self._y, self._z)
+
+
+    def atom_id(self):
+        """Returns the atom's unique integer ID.
+
+        :rtype: ``int``"""
+
+        return self._id
 
 
     def name(self, name=None):
@@ -209,6 +218,26 @@ class Atom:
             self._charge = charge
 
 
+    def bfactor(self, bfactor=None):
+        """Returns the atom's B-factor - the uncertainty in its position. If a
+        value is given, the bfactor will be updated, but it must be numeric and
+        positive.
+
+        :param number bfactor: If given, the atom's bfactor will be set to this.
+        :raises TypeError: if the bfactor given is not numeric.
+        :raises ValueError: if the bfactor given is negative.
+        :rtype: ``int`` or ``float``"""
+
+        if bfactor is None:
+            return self._bfactor
+        else:
+            if not is_numeric(bfactor):
+                raise TypeError("bfactor '{}' is not numeric".format(bfactor))
+            if bfactor < 0:
+                raise ValueError("bfactor {} is negative".format(bfactor))
+            self._bfactor = bfactor
+
+
     def bonds(self):
         """Returns the :py:class:`.Bond` objects that the atom is associated
         with.
@@ -233,7 +262,8 @@ class Atom:
         """Bonds the atom to some other atom by creating a :py:class:`.Bond`
         between them."""
 
-        Bond(self, other)
+        if other not in self.bonded_atoms():
+            Bond(self, other)
 
 
     def unbond(self, other):
@@ -246,10 +276,26 @@ class Atom:
         if not isinstance(other, Atom):
             raise TypeError("Cannot unbond non-atom {}".format(other))
         for bond in self.bonds():
-            if other in bond.atoms():
+            if other in bond.atoms() and other is not self:
                 bond.destroy()
                 return
         raise ValueError("{} cannot unbond non-bonded {}".format(self, other))
+
+
+    def bond_with(self, other):
+        """Returns the :py:class:`.Bond` between this atom and another.
+
+        :param Atom other: The atom to get the bond with.
+        :raises TypeError: if something other than an :py:class:`Atom` is given.
+        :rtype: ``Bond`` (or ``None`` if no bond exists)."""
+
+        if not isinstance(other, Atom):
+            raise TypeError("Cannot get bond with non-atom {}".format(other))
+        if other is self:
+            return None
+        for bond in self.bonds():
+            if other in bond.atoms():
+                return bond
 
 
     def mass(self):
@@ -282,7 +328,7 @@ class Atom:
             except:
                 raise TypeError("'{}' is not an Atom".format(other))
         else:
-            x, y, z = other._x, other._y, other._z
+            x, y, z = other.location()
         x_sum = pow((x - self._x), 2)
         y_sum = pow((y - self._y), 2)
         z_sum = pow((z - self._z), 2)
@@ -335,6 +381,47 @@ class Bond:
         return atom1.distance_to(atom2)
 
 
+    def vector(self, target):
+        """Returns the ``Vector`` which represents the bond. You must specify
+        which atom you want the Vector to point towards.
+
+        The Vector comes from the ``points`` library.
+
+        :param Atom target: The atom the Vector will point towards.
+        :raises TypeError: if a non-atom is given.
+        :raises ValueError: if the atom given isn't in the Bond.
+        :rtype: ``Vector``"""
+
+        if not isinstance(target, Atom):
+            raise TypeError("bond atom {} is not an atom".format(target))
+        if target not in self._atoms:
+            raise ValueError("{} is not in bond {}".format(target, self))
+        base = [atom for atom in self._atoms if atom is not target][0]
+        values = [c1 - c2 for c1, c2 in zip(target.location(), base.location())]
+        return Vector(*values)
+
+
+    def angle_with(self, other, degrees=False):
+        """Returns the angle between this Bond and another. If the Bonds share
+        an atom, the atom will be used as the source of the two vectors. If
+        they don't, the closest atoms will be used as the base.
+
+        :param Bond other: The other Bond.
+        :param bool degrees: If ``True``, the angle will be returned in degrees.
+        :raises TypeError: if a non-Bond is given.
+        :rtype: ``float``"""
+
+        if not isinstance(other, Bond):
+            raise TypeError("{} is not a Bond".format(other))
+        pairs = [
+         [set([a1, a2]), a1.distance_to(a2)]
+        for a1 in self._atoms for a2 in other._atoms]
+        pair = min(pairs, key=lambda k: k[1])[0]
+        v1 = self.vector([a for a in self._atoms if a not in pair][0])
+        v2 = other.vector([a for a in other._atoms if a not in pair][0])
+        return v1.angle_with(v2, degrees=degrees)
+
+
     def destroy(self):
         """Destroys the bond and removes it from its atoms' ``set`` of bonds.
 
@@ -347,49 +434,6 @@ class Bond:
         atom1._bonds.remove(self)
         atom2._bonds.remove(self)
 
-    def _vector(self):
-        """
-        Calculates a vector formed by the two atoms in the bond
-        
-        :return: list
-        """
-
-        atom1, atom2 = self._atoms
-
-        # for readability here are the coordinates of the atom in a list [x,y,z]
-        atom1_coor = [atom1.x(), atom1.y(), atom1.z()]
-        atom2_coor = [atom2.x(), atom2.y(), atom2.z()]
-
-        # calculate a vector of atom1 and atom2 by subtracting the x, y and z coordinates of atom2 and atom1
-        return [atom2_coor_i - atom1_coor_i for atom2_coor_i, atom1_coor_i in zip(atom2_coor, atom1_coor)]
-
-    def angle_with(self, bond_obj, in_degrees=True):
-
-        """
-        Calculates the angle between two bonds using the Bond objects
-        
-        :param bond_obj: Bond object
-        :param in_degrees: boolean, determines if result is returned in degrees or radians
-        :return: float
-        """
-
-        if not isinstance(bond_obj, Bond):
-            raise TypeError("bond_obj is not a Bond object, it is {}".format(type(bond_obj)))
-
-        # first get calculate the dot product of the vectors of the two bonds
-        bond_dot_product = dot_product(self._vector(), bond_obj._vector())
-
-        # multiply the vector magnitude of each bond vector
-        magnitude_product = self.length() * bond_obj.length()
-
-        # calculate the angle by taking the arcosine of the ratio of the dot product to the product of vector u and v
-        # magnitude
-        angle = acos(bond_dot_product / magnitude_product)
-
-        if in_degrees:
-            return degrees(angle)
-        else:
-            return angle
 
 
 PERIODIC_TABLE = {
@@ -415,26 +459,3 @@ PERIODIC_TABLE = {
  "ES": 252, "FM": 257, "MD": 258, "NO": 259, "RF": 261, "LR": 262, "DB": 262,
  "BH": 264, "SG": 266, "MT": 268, "RG": 272, "HS": 277
 }
-
-
-def dot_product(u, v):
-
-    """
-    Calculates the dot product of two vectors, u and v
-    :param u: list
-    :param v: list
-    :return: float
-    """
-
-    return sum([u_i * v_i for u_i, v_i in zip(u, v)])
-
-
-# def magnitude(u):
-#
-#     """
-#     Calculates the magnitude of a vector u
-#     :param u: list
-#     :return: float
-#     """
-#
-#     return sqrt(sum(map(lambda x: x**2, u)))

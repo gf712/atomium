@@ -1,4 +1,4 @@
-"""Contains classes for structures made of atoms."""
+"""This module contains classes for structures made of atoms."""
 
 from collections import Counter
 import weakref
@@ -8,11 +8,12 @@ from .atoms import Atom
 
 class AtomicStructure:
     """Represents structures made of :py:class:`.Atom` objects, which tends to
-    be rather a lot of things in practice. This class would not generally be
+    be quite a lot of things in practice. This class would not generally be
     instantiated directly, and is here to be a parent class to other, more
     specific entities.
 
-    AtomicStructures are containers of their atoms.
+    AtomicStructures are containers of their atoms, and support the ``in``
+    keyword.
 
     :param \*atoms: The :py:class:`.Atom` objects that make up the structure.\
     These can also be AtomicStructures themsevles, in which case the atoms of\
@@ -30,18 +31,21 @@ class AtomicStructure:
                 raise TypeError(
                  "AtomicStructures need atoms, not '{}'".format(atom)
                 )
-        self._atoms = set(atoms_)
+        self._id_atoms = {a.atom_id(): a for a in atoms_ if a.atom_id()}
+        self._atoms = set([a for a in atoms_ if not a.atom_id()])
 
 
     def __repr__(self):
-        return "<{} ({} atoms)>".format(self.__class__.__name__, len(self._atoms))
+        return "<{} ({} atoms)>".format(
+         self.__class__.__name__, len(self._atoms) + len(self._id_atoms)
+        )
 
 
     def __contains__(self, member):
-        return member in self._atoms
+        return member in self._atoms or member in self._id_atoms.values()
 
 
-    def atoms(self, element=None, atom_id=None, name=None):
+    def atoms(self, atom_id=None, element=None, name=None):
         """Returns the :py:class:`.Atom` objects in the structure. You can
         filter these by element if you wish.
 
@@ -53,7 +57,7 @@ class AtomicStructure:
         returned.
         :rtype: ``set``"""
 
-        atoms = set(self._atoms)
+        atoms = self._atoms.union(set(self._id_atoms.values()))
         if element:
             atoms = set(filter(lambda a: a.element() == element, atoms))
         if atom_id:
@@ -70,14 +74,16 @@ class AtomicStructure:
         atom matches the criteria you give, it might not be the same atom that
         is returned each time you call this method.
 
-        :param str element: If given, only atoms whose element matches this\
-        will be searched.
         :param int atom_id: If given, only atoms whose atom ID matches this\
+        will be searched.
+        :param str element: If given, only atoms whose element matches this\
         will be searched.
         :param str name: If given, only atoms whose name matches this will be\
         searched.
         :rtype: ``Atom``"""
 
+        if "atom_id" in kwargs:
+            return self._id_atoms.get(kwargs["atom_id"])
         atoms = self.atoms(*args, **kwargs)
         for atom in atoms: return atom
 
@@ -90,7 +96,10 @@ class AtomicStructure:
 
         if not isinstance(atom, Atom):
             raise TypeError("Can only add atoms, not '{}'".format(atom))
-        self._atoms.add(atom)
+        if atom.atom_id():
+            self._id_atoms[atom.atom_id()] = atom
+        else:
+            self._atoms.add(atom)
 
 
     def remove_atom(self, atom):
@@ -98,7 +107,10 @@ class AtomicStructure:
 
         :param Atom atom: The atom to remove."""
 
-        self._atoms.remove(atom)
+        if atom.atom_id():
+            del self._id_atoms[atom.atom_id()]
+        else:
+            self._atoms.remove(atom)
 
 
     def mass(self):
@@ -107,7 +119,7 @@ class AtomicStructure:
 
         :rtype: ``float``"""
 
-        return sum([atom.mass() for atom in self._atoms])
+        return sum([atom.mass() for atom in self.atoms()])
 
 
     def charge(self):
@@ -116,7 +128,7 @@ class AtomicStructure:
 
         :rtype: ``float``"""
 
-        return sum([atom.charge() for atom in self._atoms])
+        return sum([atom.charge() for atom in self.atoms()])
 
 
     def formula(self):
@@ -124,7 +136,7 @@ class AtomicStructure:
 
         :rtype: ``Counter``"""
 
-        return Counter([atom.element() for atom in self._atoms])
+        return Counter([atom.element() for atom in self.atoms()])
 
 
     def translate(self, dx, dy, dz):
@@ -135,7 +147,7 @@ class AtomicStructure:
         :param Number dy: The distance to move in the y direction.
         :param Number dz: The distance to move in the z direction."""
 
-        atoms = list(self._atoms)
+        atoms = list(self.atoms())
         points = translate(atoms, dx, dy, dz)
         for index, atom in enumerate(atoms):
             atom._x, atom._y, atom._z = points[index]
@@ -148,7 +160,7 @@ class AtomicStructure:
         :param str axis: The axis to rotate around. Can only be 'x', 'y' or 'z'.
         :param Number angle: The angle in degrees. Rotation is right handed."""
 
-        atoms = list(self._atoms)
+        atoms = list(self.atoms())
         points = rotate(atoms, axis, angle)
         for index, atom in enumerate(atoms):
             atom._x, atom._y, atom._z = points[index]
@@ -161,9 +173,10 @@ class AtomicStructure:
         :returns: (x, y, z) ``tuple``"""
 
         mass = self.mass()
-        average_x = sum([atom._x * atom.mass() for atom in self._atoms]) / mass
-        average_y = sum([atom._y * atom.mass() for atom in self._atoms]) / mass
-        average_z = sum([atom._z * atom.mass() for atom in self._atoms]) / mass
+        atoms = self.atoms()
+        average_x = sum([atom._x * atom.mass() for atom in atoms]) / mass
+        average_y = sum([atom._y * atom.mass() for atom in atoms]) / mass
+        average_z = sum([atom._z * atom.mass() for atom in atoms]) / mass
         return (average_x, average_y, average_z)
 
 
@@ -175,16 +188,17 @@ class AtomicStructure:
         :rtype: ``float``"""
 
         center_of_mass = self.center_of_mass()
+        atoms = self.atoms()
         square_deviation = sum(
-         [atom.distance_to(center_of_mass) ** 2 for atom in self._atoms]
+         [atom.distance_to(center_of_mass) ** 2 for atom in atoms]
         )
-        mean_square_deviation = square_deviation / len(self._atoms)
+        mean_square_deviation = square_deviation / len(atoms)
         return sqrt(mean_square_deviation)
 
 
     def to_file_string(self, file_format, description=""):
         """Converts a structure to a filestring. Currently supported file formats
-        are: .xyz.
+        are: .xyz and .pdb.
 
         :param str file_format: The file format to use, in lowercase.
         :param str description: A structure description to put in the file.
@@ -193,6 +207,13 @@ class AtomicStructure:
         if file_format == "xyz":
             from ..converters.structure2xyzstring import structure_to_xyz_string
             return structure_to_xyz_string(self, description)
+        elif file_format == "pdb":
+            from ..converters.structure2pdbdatafile import structure_to_pdb_data_file
+            from ..converters.pdbdatafile2pdbfile import pdb_data_file_to_pdb_file
+            from ..converters.pdbfile2pdbstring import pdb_file_to_pdb_string
+            data_file = structure_to_pdb_data_file(self)
+            pdb_file = pdb_data_file_to_pdb_file(data_file)
+            return pdb_file_to_pdb_string(pdb_file)
         else:
             raise ValueError("{} is not a valid file type".format(file_format))
 
@@ -200,7 +221,7 @@ class AtomicStructure:
     def save(self, path, *args, **kwargs):
         """Saves the structure to file, in the format implied by the extension
         of the path you provide (i.e. giving a path ``/path/to/file.xyz`` will
-        save as .xyz).
+        save as .xyz etc.).
 
         :param str path: The path to save to. The extension you provide here is\
         important as atomium will use that to determine what file format to\
@@ -238,6 +259,8 @@ class Molecule(AtomicStructure):
         self._name = name
         for atom in self._atoms:
             atom._molecule = self
+        for atom in self._id_atoms:
+            self._id_atoms[atom]._molecule = self
 
 
     def __repr__(self):
@@ -245,23 +268,16 @@ class Molecule(AtomicStructure):
         if self._id: id_ = self._id + " "
         if self._name: name = self._name + ", "
         return "<{} {}({}{} atoms)>".format(
-         self.__class__.__name__, id_, name, len(self._atoms)
+         self.__class__.__name__, id_, name, len(self._atoms) + len(self._id_atoms)
         )
 
 
     def molecule_id(self, molecule_id=None):
-        """Returns the molecule's unique string ID. If a value is given, the ID
-        will be updated.
+        """Returns the molecule's unique string ID.
 
-        :param int molecule_id: If given, the ID will be set to this.
-        :raises TypeError: if the ID given is not str."""
+        :rtype: ``str``"""
 
-        if molecule_id is None:
-            return self._id
-        else:
-            if not isinstance(molecule_id, str):
-                raise TypeError("Molecule ID '{}' is not str".format(molecule_id))
-            self._id = molecule_id
+        return self._id
 
 
     def name(self, name=None):
@@ -280,11 +296,20 @@ class Molecule(AtomicStructure):
 
 
     def add_atom(self, atom, *args, **kwargs):
+        """Adds an :py:class:`.Atom` to the molecule.
+
+        :param Atom atom: The atom to add.
+        :raises TypeError: if the atom given is not an Atom."""
+
         AtomicStructure.add_atom(self, atom, *args, **kwargs)
         atom._molecule = self
 
 
     def remove_atom(self, atom, *args, **kwargs):
+        """Removes an :py:class:`.Atom` from the molecule.
+
+        :param Atom atom: The atom to remove."""
+
         AtomicStructure.remove_atom(self, atom, *args, **kwargs)
         atom._molecule = None
 
@@ -294,7 +319,7 @@ class Molecule(AtomicStructure):
 
         :rtype: ``Model``"""
 
-        for atom in self._atoms:
+        for atom in self.atoms():
             return atom.model()
 
 
@@ -320,29 +345,33 @@ class Residue(Molecule):
         self._next, self._previous = None, None
         for atom in self._atoms:
             atom._residue = self
+        for atom in self._id_atoms:
+            self._id_atoms[atom]._residue = self
 
 
     def residue_id(self, residue_id=None):
-        """Returns the residue's unique string ID. If a value is given, the ID
-        will be updated.
+        """Returns the residue's unique string ID.
 
-        :param int residue_id: If given, the ID will be set to this.
-        :raises TypeError: if the ID given is not str."""
+        :rtype: ``str``"""
 
-        if residue_id is None:
-            return self._id
-        else:
-            if not isinstance(residue_id, str):
-                raise TypeError("Residue ID '{}' is not str".format(residue_id))
-            self._id = residue_id
+        return self._id
 
 
     def add_atom(self, atom, *args, **kwargs):
+        """Adds an :py:class:`.Atom` to the residue.
+
+        :param Atom atom: The atom to add.
+        :raises TypeError: if the atom given is not an Atom."""
+
         Molecule.add_atom(self, atom, *args, **kwargs)
         atom._residue = self
 
 
     def remove_atom(self, atom, *args, **kwargs):
+        """Removes an :py:class:`.Atom` from the residue.
+
+        :param Atom atom: The atom to remove."""
+
         Molecule.remove_atom(self, atom, *args, **kwargs)
         atom._residue = None
 
@@ -412,5 +441,5 @@ class Residue(Molecule):
 
         :rtype: ``Chain``"""
 
-        for atom in self._atoms:
+        for atom in self.atoms():
             return atom.chain()

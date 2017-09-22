@@ -1,4 +1,4 @@
-"""Contains the Model class and its interfaces."""
+"""This module contains the Model class and its interfaces."""
 
 from .molecules import AtomicStructure, Molecule, Residue
 from .chains import ResidueStructure, Chain
@@ -23,6 +23,9 @@ class ChainStructure:
         chains = set()
         for atom in self.atoms():
             chains.add(atom.chain())
+        try:
+            chains.remove(None)
+        except KeyError: pass
         if chain_id:
             chains = set(filter(lambda c: c.chain_id() == chain_id, chains))
         if name:
@@ -76,7 +79,7 @@ class MoleculeStructure:
     this class, because it requires the :py:meth:`~.AtomicStructure.atoms`
     method."""
 
-    def molecules(self, molecule_id=None, name=None, generic=False):
+    def molecules(self, molecule_id=None, name=None, generic=False, water=True):
         """Returns the :py:class:`.Molecule` objects in the structure. It can be
         given search criteria if you wish.
 
@@ -84,14 +87,22 @@ class MoleculeStructure:
         :param str name: Filter by name.
         :param bool generic: If ``True``, chains and residues will exlcuded, \
         and only isolated small molecules will be returned.
+        :param bool water: If ``False``, water molecules will be excluded.
         :rtype: ``set``"""
 
         molecules = set()
         for atom in self.atoms():
             molecules.add(atom.molecule())
+        try:
+            molecules.remove(None)
+        except KeyError: pass
         if generic:
             molecules = set(filter(
              lambda m: not isinstance(m, (Residue, Chain)), molecules
+            ))
+        if not water:
+            molecules = set(filter(
+             lambda m: m.name() not in ("HOH", "WAT"), molecules
             ))
         if molecule_id:
             molecules = set(filter(
@@ -110,6 +121,7 @@ class MoleculeStructure:
         :param str name: Filter by name.
         :param bool generic: If ``True``, chains and residues will exlcuded, \
         and only isolated small molecules will be returned.
+        :param bool water: If ``False``, water molecules will be excluded.
         :rtype: ``Molecule``"""
 
         molecules = self.molecules(*args, **kwargs)
@@ -157,13 +169,23 @@ class Model(AtomicStructure, ResidueStructure, ChainStructure, MoleculeStructure
         AtomicStructure.__init__(self, *atoms)
         for atom in self._atoms:
             atom._model = self
+        for atom in self._id_atoms:
+            self._id_atoms[atom]._model = self
 
 
     def add_atom(self, atom, *args, **kwargs):
+        """Adds an :py:class:`.Atom` to the model.
+
+        :param Atom atom: The atom to add."""
+
         AtomicStructure.add_atom(self, atom, *args, **kwargs)
         atom._model = self
 
 
     def remove_atom(self, atom, *args, **kwargs):
+        """Removes an :py:class:`.Atom` from the model.
+
+        :param Atom atom: The atom to remove."""
+
         AtomicStructure.remove_atom(self, atom, *args, **kwargs)
         atom._model = None

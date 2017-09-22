@@ -1,6 +1,6 @@
-``atomium.xyz.xyz`` (.xyz files)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+``atomium.files.xyz`` (.xyz files)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-.. automodule:: atomium.xyz.xyz
+.. automodule:: atomium.files.xyz
     :members:
     :inherited-members:

@@ -1,4 +1,4 @@
-"""Contains chains and related polymer classes."""
+"""This module contains chains and related polymer classes."""
 
 from .molecules import Molecule, Residue
 from .exceptions import SequenceConnectivityError
@@ -23,6 +23,9 @@ class ResidueStructure:
         res = set()
         for atom in self.atoms():
             res.add(atom.residue())
+        try:
+            res.remove(None)
+        except KeyError: pass
         if residue_id:
             res = set(filter(lambda r: r.residue_id() == residue_id, res))
         if name:
@@ -167,6 +170,8 @@ class Chain(Molecule, ResidueSequence):
         ResidueSequence.verify(self)
         for atom in self._atoms:
             atom._chain = self
+        for atom in self._id_atoms:
+            self._id_atoms[atom]._chain = self
 
 
     def __repr__(self):
@@ -177,25 +182,26 @@ class Chain(Molecule, ResidueSequence):
 
 
     def chain_id(self, chain_id=None):
-        """Returns the chain's unique string ID. If a value is given, the ID
-        will be updated.
+        """Returns the chain's unique string ID.
 
-        :param int chain_id: If given, the ID will be set to this.
-        :raises TypeError: if the ID given is not str."""
+        :rtype: ``str``"""
 
-        if chain_id is None:
-            return self._id
-        else:
-            if not isinstance(chain_id, str):
-                raise TypeError("Chain ID '{}' is not str".format(chain_id))
-            self._id = chain_id
+        return self._id
 
 
     def add_atom(self, atom, *args, **kwargs):
+        """Adds an :py:class:`.Atom` to the xhain.
+
+        :param Atom atom: The atom to add."""
+
         Molecule.add_atom(self, atom, *args, **kwargs)
         atom._chain = self
 
 
     def remove_atom(self, atom, *args, **kwargs):
+        """Removes an :py:class:`.Atom` from the chain.
+
+        :param Atom atom: The atom to remove."""
+
         Molecule.remove_atom(self, atom, *args, **kwargs)
         atom._chain = None
